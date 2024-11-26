@@ -13,48 +13,13 @@ def verify_valid_credentials():
     except ClientError as e:
         print(f"Error: {e}")
 
-def create_ec2_worker_instances(ec2_client, security_group_id, user_data):
+def create_ec2_instances(instance_type, count, name, security_group_id, user_data):
     try:
         ec2_client.create_instances(
-            ImageId='ami-0e86e20dae9224db8', MaxCount=2, InstanceType = 't2.micro', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
-                    'Value': 'Worker'}]}], SecurityGroupIds=[security_group_id],
+            ImageId='ami-0e86e20dae9224db8', MaxCount=count, InstanceType = instance_type, MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
+                    'Value': name}]}], SecurityGroupIds=[security_group_id],
                                      UserData=user_data)
-        print("Creating 2 worker instances")
-    except ClientError as e:
-        print(f"Error: {e}")
-
-def create_ec2_manager_instance(ec2_client, security_group_id, user_data):
-    try:
-        ec2_client.create_instances(
-            ImageId='ami-0e86e20dae9224db8', MaxCount=1, InstanceType = 't2.micro', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
-                    'Value': 'Manager'}]}], SecurityGroupIds=[security_group_id],
-                                     UserData=user_data)
-        print("Creating Manager instance")
-    except ClientError as e:
-        print(f"Error: {e}")
-
-def create_ec2_proxy_instance(ec2_client, security_group_id, user_data):
-    try:
-        ec2_client.create_instances(
-            ImageId='ami-0e86e20dae9224db8', MaxCount=1, InstanceType = 't2.large', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
-                    'Value': 'Proxy'}]}], SecurityGroupIds=[security_group_id],
-                                     UserData=user_data)
-        print("Creating Proxy instance")
-    except ClientError as e:
-        print(f"Error: {e}")
-
-def create_ec2_gatekeeper_instance(ec2_client, security_group_id, user_data):
-    try:
-        ec2_client.create_instances(
-            ImageId='ami-0e86e20dae9224db8', MaxCount=1, InstanceType = 't2.large', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
-                    'Value': 'Gatekeeper'}]}], SecurityGroupIds=[security_group_id],
-                                     UserData=user_data)
-        print("Creating Gatekeeper instance")
-        ec2_client.create_instances(
-            ImageId='ami-0e86e20dae9224db8', MaxCount=1, InstanceType = 't2.large', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
-                    'Value': 'Trusted_Host'}]}], SecurityGroupIds=[security_group_id],
-                                     UserData=user_data)
-        print("Creating Trusted_Host instance")
+        print(f"Creating {count} {name} instances")
     except ClientError as e:
         print(f"Error: {e}")
 
@@ -107,7 +72,8 @@ ec2 = boto3.client('ec2')
 verify_valid_credentials()
 create_login_key_pair(ec2_client)
 security_group_id = create_security_group(ec2_client)
-create_ec2_worker_instances(ec2_client, security_group_id, USER_DATA)
-create_ec2_manager_instance(ec2_client, security_group_id, USER_DATA)
-create_ec2_proxy_instance(ec2_client, security_group_id, USER_DATA)
-create_ec2_gatekeeper_instance(ec2_client, security_group_id, USER_DATA)
+worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', security_group_id, USER_DATA)
+manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', security_group_id, USER_DATA)
+proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', security_group_id, USER_DATA)
+gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper', security_group_id, USER_DATA)
+trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', security_group_id, USER_DATA)
