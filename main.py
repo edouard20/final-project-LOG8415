@@ -13,13 +13,23 @@ def verify_valid_credentials():
     except ClientError as e:
         print(f"Error: {e}")
 
-def create_ec2_micro_instances(ec2_client, security_group_id, user_data):
+def create_ec2_worker_instances(ec2_client, security_group_id, user_data):
     try:
         ec2_client.create_instances(
-            ImageId='ami-0e86e20dae9224db8', MaxCount=3, InstanceType = 't2.micro', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
+            ImageId='ami-0e86e20dae9224db8', MaxCount=2, InstanceType = 't2.micro', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
                     'Value': 'Worker'}]}], SecurityGroupIds=[security_group_id],
                                      UserData=user_data)
-        print("Creating 3 t2.micro instances")
+        print("Creating 2 worker instances")
+    except ClientError as e:
+        print(f"Error: {e}")
+
+def create_ec2_worker_instances(ec2_client, security_group_id, user_data):
+    try:
+        ec2_client.create_instances(
+            ImageId='ami-0e86e20dae9224db8', MaxCount=1, InstanceType = 't2.micro', MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
+                    'Value': 'Manager'}]}], SecurityGroupIds=[security_group_id],
+                                     UserData=user_data)
+        print("Creating Manager instance")
     except ClientError as e:
         print(f"Error: {e}")
 
@@ -29,7 +39,7 @@ def create_security_group(ec2):
     vpc_id = response_vpcs.get('Vpcs', [{}])[0].get('VpcId', '')
 
     response = ec2.create_security_group(
-        GroupName="lab2-8415",
+        GroupName="lab3-8415",
         Description="Security Group with access on port 8080 and 8081",
         VpcId=vpc_id
         )
