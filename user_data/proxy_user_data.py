@@ -1,37 +1,18 @@
 PROXY_USER_DATA = """#!/bin/bash
 sudo apt update -y
-sudo apt-get install -y sysbench
+sudo apt-get install -y sysbench python3 python3-pip
+
+pip install flask, mysqlclient, boto3
+
+mkdir -p /home/ubuntu/proxy
+cd /home/ubuntu/proxy
 
 cat << 'EOF' > /home/ubuntu/proxy.py
-import requests
 from flask import Flask, request, jsonify
 import MySQLdb
-import string
-import time
 import random
-
+import boto3
 app = Flask(__name__)
-
-manager_db = {
-    "host": {manager_ip['PrivateIP']},
-    "user": root,
-    "password": "myPassword",
-    "database": "sakila"
-}
-worker_dbs = [
-    {
-        "host": {worker_ips[0]['PrivateIP']},
-        "user": root,
-        "password": "myPassword",
-        "database": "sakila"
-    },
-    {
-        "host": {worker_ips[1]['PrivateIP']},
-        "user": root,
-        "password": "myPassword",
-        "database": "sakila"
-    },
-]
 
 def connect_db(db_config):
     return MySQLdb.connect(
@@ -102,10 +83,51 @@ def replicate_to_worker(worker_db, query):
         conn.close()
     except Exception as e:
         print(f"Error replicating to worker {worker_db['host']}: {str(e)}")   
-             
+
+def get_SQL_cluster_ips(role):
+    ec2_client = boto3.client("ec2")
+    response = ec2_client.describe_instances(
+        Filters=[
+            {"Name": "tag:Role", "Values": [role]},
+            {"Name": "instance-state-name", "Values": ["running"]}
+        ]
+    )
+    ip_addresses = [
+        instance["PrivateIpAddress"]
+        for reservation in response["Reservations"]
+        for instance in reservation["Instances"]
+    ]
+
+    return ip_addresses    
+      
 if __name__ == '__main__':
+
+    manager_ip = get_SQL_cluster_ips("Manager")
+    worker_ips = get_SQL_cluster_ips("Worker")
+    manager_db = {
+    "host": {manager_ip['PrivateIP']},
+    "user": "root",
+    "password": "myPassword",
+    "database": "sakila"
+    }
+    worker_dbs = [
+        {
+            "host": {worker_ips[0]['PrivateIP']},
+            "user": "root",
+            "password": "myPassword",
+            "database": "sakila"
+        },
+        {
+            "host": {worker_ips[1]['PrivateIP']},
+            "user": "root",
+            "password": "myPassword",
+            "database": "sakila"
+        },
+    ]
+    
     app.run(host='0.0.0.0', port=80)
 
 EOF
 
+python3 proxy.py
 """

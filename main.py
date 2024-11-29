@@ -90,10 +90,6 @@ create_login_key_pair(ec2_client)
 security_group_id = create_security_group(ec2_client)
 worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', security_group_id, USER_DATA)
 manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', security_group_id, USER_DATA)
-
-manager_ip = get_SQL_cluster_ips("Manager")
-worker_ips = get_SQL_cluster_ips("Worker")
-
 proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', security_group_id, PROXY_USER_DATA)
 gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper', security_group_id, USER_DATA)
 trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', security_group_id, USER_DATA)
