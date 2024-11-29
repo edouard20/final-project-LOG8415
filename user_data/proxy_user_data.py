@@ -1,21 +1,25 @@
-PROXY_USER_DATA = """#!/bin/bash
+from main import manager_ip, worker_ips
+PROXY_USER_DATA = f"""#!/bin/bash
 sudo apt update -y
 sudo apt-get install -y sysbench python3 python3-pip
+sudo apt-get install python3-venv
+python3 -m venv /home/ubuntu/myenv
+source /home/ubuntu/myenv/bin/activate
+pip install flask mysql-connector-python boto3
 
-pip install flask, mysqlclient, boto3
-
-mkdir -p /home/ubuntu/proxy
-cd /home/ubuntu/proxy
+cd /home/ubuntu/
+touch proxy.log
+sudo chown ubuntu:ubuntu /home/ubuntu/proxy.log
 
 cat << 'EOF' > /home/ubuntu/proxy.py
 from flask import Flask, request, jsonify
-import MySQLdb
+import mysql.connector
 import random
 import boto3
 app = Flask(__name__)
 
 def connect_db(db_config):
-    return MySQLdb.connect(
+    return mysql.connector.connect(
         host=db_config['host'],
         user=db_config['user'],
         password=db_config['password'],
@@ -82,30 +86,12 @@ def replicate_to_worker(worker_db, query):
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"Error replicating to worker {worker_db['host']}: {str(e)}")   
-
-def get_SQL_cluster_ips(role):
-    ec2_client = boto3.client("ec2")
-    response = ec2_client.describe_instances(
-        Filters=[
-            {"Name": "tag:Role", "Values": [role]},
-            {"Name": "instance-state-name", "Values": ["running"]}
-        ]
-    )
-    ip_addresses = [
-        instance["PrivateIpAddress"]
-        for reservation in response["Reservations"]
-        for instance in reservation["Instances"]
-    ]
-
-    return ip_addresses    
+        print(f"Error replicating to worker {worker_dbs['host']}: {str(e)}")   
       
 if __name__ == '__main__':
 
-    manager_ip = get_SQL_cluster_ips("Manager")
-    worker_ips = get_SQL_cluster_ips("Worker")
     manager_db = {
-    "host": {manager_ip['PrivateIP']},
+    "host": {manager_ip[0]['PrivateIP']},
     "user": "root",
     "password": "myPassword",
     "database": "sakila"
@@ -124,10 +110,9 @@ if __name__ == '__main__':
             "database": "sakila"
         },
     ]
-    
-    app.run(host='0.0.0.0', port=80)
 
+    app.run(host='0.0.0.0', port=80)
 EOF
 
-python3 proxy.py
+nohup python3 proxy.py > /home/ubuntu/proxy.log 2>&1 &
 """

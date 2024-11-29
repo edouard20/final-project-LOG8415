@@ -1,11 +1,11 @@
 from flask import Flask, request, jsonify
-import MySQLdb
+import mysql.connector
 import random
 import boto3
 app = Flask(__name__)
 
 def connect_db(db_config):
-    return MySQLdb.connect(
+    return mysql.connector.connect(
         host=db_config['host'],
         user=db_config['user'],
         password=db_config['password'],
@@ -114,5 +114,5 @@ if __name__ == '__main__':
             "database": "sakila"
         },
     ]
-    
+
     app.run(host='0.0.0.0', port=80)

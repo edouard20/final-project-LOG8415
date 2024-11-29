@@ -19,13 +19,16 @@ def get_instance_ids():
 
 def terminate_instances():
     print(f"Terminating instances: {instance_ids}")
-    ec2_client.terminate_instances(InstanceIds=instance_ids)
-
+    try:
+        ec2_client.terminate_instances(InstanceIds=instance_ids)
+    except Exception as e:
+        print(f"Error: {e}")
+        
 def get_security_group_id():
     response = ec2_client.describe_security_groups( Filters=[
                 {
                     'Name': 'group-name',
-                    'Values': ["lab2-8415"]
+                    'Values': ["lab3-8415"]
                 }
             ]
         )
