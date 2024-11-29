@@ -1,6 +1,7 @@
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 import os
+import time
 from user_data.user_data import USER_DATA
 from user_data.proxy_user_data import PROXY_USER_DATA
 
@@ -84,7 +85,7 @@ def get_SQL_cluster_ips(role):
     ec2_client = boto3.client("ec2")
     response = ec2_client.describe_instances(
         Filters=[
-            {"Name": "tag:Role", "Values": [role]},
+            {"Name": "tag:Name", "Values": [role]},
             {"Name": "instance-state-name", "Values": ["running"]}
         ]
     )
@@ -104,8 +105,13 @@ create_login_key_pair(ec2_client)
 security_group_id = create_security_group(ec2_client)
 worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', security_group_id, USER_DATA)
 manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', security_group_id, USER_DATA)
+time.sleep(5)
 manager_ip = get_SQL_cluster_ips("Manager")
 worker_ips = get_SQL_cluster_ips("Worker")
+
+PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
+PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
+PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
 proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', security_group_id, PROXY_USER_DATA)
 # gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper', security_group_id, USER_DATA)
 # trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', security_group_id, USER_DATA)

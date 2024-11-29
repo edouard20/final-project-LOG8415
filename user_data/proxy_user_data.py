@@ -1,17 +1,16 @@
-from main import manager_ip, worker_ips
-PROXY_USER_DATA = f"""#!/bin/bash
+PROXY_USER_DATA = """#!/bin/bash
 sudo apt update -y
 sudo apt-get install -y sysbench python3 python3-pip
 sudo apt-get install python3-venv
-python3 -m venv /home/ubuntu/myenv
-source /home/ubuntu/myenv/bin/activate
+python3 -m venv /home/ubuntu/app/myenv
+source /home/ubuntu/app/myenv/bin/activate
 pip install flask mysql-connector-python boto3
 
-cd /home/ubuntu/
+cd /home/ubuntu/app
 touch proxy.log
-sudo chown ubuntu:ubuntu /home/ubuntu/proxy.log
+sudo chown ubuntu:ubuntu /home/ubuntu/app/proxy.log
 
-cat << 'EOF' > /home/ubuntu/proxy.py
+cat << 'EOF' > /home/ubuntu/app/proxy.py
 from flask import Flask, request, jsonify
 import mysql.connector
 import random
@@ -91,20 +90,20 @@ def replicate_to_worker(worker_db, query):
 if __name__ == '__main__':
 
     manager_db = {
-    "host": {manager_ip[0]['PrivateIP']},
+    "host": "manager_ip",
     "user": "root",
     "password": "myPassword",
     "database": "sakila"
     }
     worker_dbs = [
         {
-            "host": {worker_ips[0]['PrivateIP']},
+            "host": "worker_ip1",
             "user": "root",
             "password": "myPassword",
             "database": "sakila"
         },
         {
-            "host": {worker_ips[1]['PrivateIP']},
+            "host": "worker_ip2",
             "user": "root",
             "password": "myPassword",
             "database": "sakila"
@@ -114,5 +113,5 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
 EOF
 
-nohup python3 proxy.py > /home/ubuntu/proxy.log 2>&1 &
+nohup python3 proxy.py > /home/ubuntu/app/proxy.log 2>&1 &
 """
