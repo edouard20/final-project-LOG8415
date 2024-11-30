@@ -1,14 +1,13 @@
 PROXY_USER_DATA = """#!/bin/bash
+sudo -i
 sudo apt update -y
 sudo apt-get install -y sysbench python3 python3-pip
-sudo apt-get install python3-venv
+sudo apt-get install -y python3-venv
 python3 -m venv /home/ubuntu/app/myenv
 source /home/ubuntu/app/myenv/bin/activate
 pip install flask mysql-connector-python boto3
 
 cd /home/ubuntu/app
-touch proxy.log
-sudo chown ubuntu:ubuntu /home/ubuntu/app/proxy.log
 
 cat << 'EOF' > /home/ubuntu/app/proxy.py
 from flask import Flask, request, jsonify
@@ -110,7 +109,7 @@ if __name__ == '__main__':
         },
     ]
 
-    app.run(host='0.0.0.0', port=80)
+    app.run(host='0.0.0.0', port=8080)
 EOF
 
 nohup python3 proxy.py > /home/ubuntu/app/proxy.log 2>&1 &
