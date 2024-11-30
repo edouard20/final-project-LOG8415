@@ -21,7 +21,7 @@ def connect_db(db_config):
         host=db_config['host'],
         user=db_config['user'],
         password=db_config['password'],
-        db=db_config['db']
+        database=db_config['database']
     )
 
 @app.route('/health', methods=['GET'])
@@ -32,14 +32,23 @@ def health_check():
 def read():
     try:
         worker_db = random.choice(worker_dbs)
+        print(worker_db)
+
         conn = connect_db(worker_db)
+
+        print(conn)
+
         # TODO implement logic to choose worker
         cursor = conn.cursor()
 
-        query = request.args.get("query")  # Example: "SELECT * FROM users"
+        query = request.args.get("query")
+
+        print(f"Executing query: {query}")
         cursor.execute(query)
+
         result = cursor.fetchall()
 
+        print(f"Result: {result}")
         cursor.close()
         conn.close()
 
