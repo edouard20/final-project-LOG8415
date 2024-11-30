@@ -15,17 +15,24 @@ def verify_valid_credentials():
     except ClientError as e:
         print(f"Error: {e}")
 
-def create_ec2_instances(instance_type, count, name, security_group_id, user_data):
+def create_ec2_instances(instance_type, count, name, security_group_id, subnet_id, isPublic, user_data):
     try:
         ec2_client.create_instances(
             ImageId='ami-0e86e20dae9224db8', MaxCount=count, InstanceType = instance_type, MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
-                    'Value': name}]}], SecurityGroupIds=[security_group_id],
+                    'Value': name}]}], NetworkInterfaces=[
+            {
+                'SubnetId': subnet_id,
+                'DeviceIndex': 0,
+                'Groups': [security_group_id],
+                'AssociatePublicIpAddress': isPublic
+            }
+        ],
                                      UserData=user_data)
         print(f"Creating {count} {name} instances")
     except ClientError as e:
         print(f"Error: {e}")
 
-def create_security_groups(ec2):
+def create_security_groups():
     ec2 = boto3.client('ec2')
     vpc = ec2.create_vpc(CidrBlock='10.0.0.0/16')
     vpc_id = vpc['Vpc']['VpcId']
@@ -35,14 +42,23 @@ def create_security_groups(ec2):
     public_subnet = ec2.create_subnet(VpcId = vpc_id, CidrBlock='10.0.1.0/24')
     public_subnet_id = public_subnet['Subnet']['SubnetId']
 
+    print("Created public subnet with ID: ", public_subnet_id)
+
     private_subnet = ec2.create_subnet(VpcId = vpc_id, CidrBlock='10.0.2.0/24')
     private_subnet_id = private_subnet['Subnet']['SubnetId']
+
+    print("Created private subnet with ID: ", private_subnet_id)
+
     internet_gateway = ec2.create_internet_gateway()
     igw_id = internet_gateway['InternetGateway']['InternetGatewayId']
     ec2.attach_internet_gateway(VpcId=vpc_id, InternetGatewayId=igw_id)
 
+    print("Created internet gateway with ID: ", igw_id)
+
     public_route_table = ec2.create_route_table(VpcId=vpc_id)
     public_route_table_id = public_route_table['RouteTable']['RouteTableId']
+
+    print("Created public route table with ID: ", public_route_table_id)
 
     ec2.create_route(
         RouteTableId=public_route_table_id,
@@ -62,8 +78,13 @@ def create_security_groups(ec2):
 
     nat_gateway_id = nat_gateway['NatGateway']['NatGatewayId']
 
+    waiter = ec2.get_waiter('nat_gateway_available')
+    waiter.wait(NatGatewayIds=[nat_gateway_id])
+
     private_route_table = ec2.create_route_table(VpcId=vpc_id)
     private_route_table_id = private_route_table['RouteTable']['RouteTableId']
+
+    print("Created private route table with ID: ", private_route_table_id)
 
     ec2.create_route(
     RouteTableId=private_route_table_id,
@@ -96,19 +117,37 @@ def create_security_groups(ec2):
     
     ec2.authorize_security_group_ingress(
         GroupId=private_security_group['GroupId'],
-        SourceSecurityGroupId=public_security_group['GroupId'],
         IpPermissions=[
             {'IpProtocol': 'tcp',
                 'FromPort': 3306,
                 'ToPort': 3306,
-                'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
+                 'UserIdGroupPairs': [
+                {
+                    'GroupId': public_security_group['GroupId'],
+                },
+                 ],
+                'IpRanges': [{'CidrIp': '10.0.1.0/24'}]},
             {'IpProtocol': 'tcp',
                 'FromPort': 22,
                 'ToPort': 22,
-                'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
+                 'UserIdGroupPairs': [
+                {
+                    'GroupId': public_security_group['GroupId'],
+                },
+                 ],
+                'IpRanges': [{'CidrIp': '10.0.1.0/24'}]},
+             {'IpProtocol': 'tcp',
+                'FromPort': 80,
+                'ToPort': 80,
+                 'UserIdGroupPairs': [
+                {
+                    'GroupId': public_security_group['GroupId'],
+                },
+                 ],
+                'IpRanges': [{'CidrIp': '10.0.1.0/24'}]},
             ])
                               
-    return public_security_group['GroupId'], private_security_group['GroupId']
+    return (public_security_group['GroupId'], public_subnet_id), (private_security_group['GroupId'], private_subnet_id)
 
 def get_SQL_cluster_ips(role):
     ec2_client = boto3.client("ec2")
@@ -156,9 +195,9 @@ ec2 = boto3.client('ec2')
 
 verify_valid_credentials()
 create_login_key_pair(ec2_client)
-public_security_group_id, private_security_group_id = create_security_groups(ec2_client)
-worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', private_security_group_id, USER_DATA)
-manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', private_security_group_id, USER_DATA)
+public_security_group, private_security_group = create_security_groups()
+worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', private_security_group[0], private_security_group[1], False, USER_DATA)
+manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', private_security_group[0], private_security_group[1], False, USER_DATA)
 time.sleep(5)
 manager_ip = get_SQL_cluster_ips("Manager")
 worker_ips = get_SQL_cluster_ips("Worker")
@@ -166,6 +205,6 @@ worker_ips = get_SQL_cluster_ips("Worker")
 PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
-proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group_id, PROXY_USER_DATA)
+proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group[0], private_security_group[1], False, PROXY_USER_DATA)
 # gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper', public_security_group_id, USER_DATA)
 # trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, USER_DATA)
