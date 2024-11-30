@@ -4,6 +4,7 @@ import os
 import time
 from user_data.user_data import USER_DATA
 from user_data.proxy_user_data import PROXY_USER_DATA
+from user_data.gatekeeper_user_data import GATEKEEPER_USER_DATA
 
 def verify_valid_credentials():
     try:
@@ -206,5 +207,22 @@ PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
 proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group[0], private_security_group[1], False, PROXY_USER_DATA)
-# gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper', public_security_group_id, USER_DATA)
-# trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, USER_DATA)
+trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group[0], private_security_group[1], False, USER_DATA)
+time.sleep(5)
+
+response = ec2_client.describe_instances(
+        Filters=[
+            {"Name": "tag:Name", "Values": ["Trusted_Host"]},
+            {"Name": "instance-state-name", "Values": ["running"]}
+        ]
+    )
+
+ip_addresses = [
+        instance["PrivateIpAddress"]
+        for reservation in response["Reservations"]
+        for instance in reservation["Instances"]
+    ]
+
+print(ip_addresses)
+GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
+gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group[0], public_security_group[1], True, USER_DATA)
