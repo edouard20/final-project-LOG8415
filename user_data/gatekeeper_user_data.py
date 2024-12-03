@@ -22,13 +22,15 @@ app = Flask(__name__)
 @app.route("/read", methods=["GET"])
 def read():
     data = request.args.get("query")
-    
+    implementation = request.args.get("implementation")
+
     if not data:
         return jsonify({'error': 'No query parameter provided'}), 400
-
+    if not implementation || implementation not in ['DH', 'RANDOM', 'CUSTOM']:
+        return jsonify({'error': 'Invalid implementation parameter provided'}), 400
     try:
         # Send the query to the trusted host
-        response = requests.get("http://TRUSTED_HOST_URL:8080/read", params={"query": data})
+        response = requests.get("http://TRUSTED_HOST_URL:8080/read", params={"query": data, "implementation": implementation})
         
         if response.status_code == 200:
             return jsonify(response.json()), 200

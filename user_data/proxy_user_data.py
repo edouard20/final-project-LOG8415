@@ -31,28 +31,88 @@ def health_check():
 @app.route("/read", methods=["GET"])
 def read():
     try:
-        worker_db = random.choice(worker_dbs)
-        print(worker_db)
+        implementation = request.args.get("implementation")
 
-        conn = connect_db(worker_db)
-
-        print(conn)
-
-        # TODO implement logic to choose worker
-        cursor = conn.cursor()
+        if not implementation or implementation not in ['DH', 'RANDOM', 'CUSTOM']:
+            return jsonify({'error': 'Invalid implementation parameter provided'}), 400
 
         query = request.args.get("query")
+        if not query:
+            return jsonify({'error': 'No query parameter provided'}), 400
 
-        print(f"Executing query: {query}")
-        cursor.execute(query)
+        if implementation == 'DH':
+            conn = connect_db(manager_db)
+            cursor = conn.cursor()
 
-        result = cursor.fetchall()
 
-        print(f"Result: {result}")
-        cursor.close()
-        conn.close()
+            print(f"Executing query: {query}")
+            cursor.execute(query)
 
-        return jsonify({"status": "success", "data": result})
+            result = cursor.fetchall()
+
+            print(f"Result: {result}")
+            cursor.close()
+            conn.close()
+
+            return jsonify({"status": "success", "data": result})
+        elif implementation == 'RANDOM':
+            worker_db = random.choice(worker_dbs)
+            print(worker_db)
+
+            conn = connect_db(worker_db)
+
+            print(conn)
+
+            cursor = conn.cursor()
+
+            print(f"Executing query: {query}")
+            cursor.execute(query)
+
+            result = cursor.fetchall()
+
+            print(f"Result: {result}")
+            cursor.close()
+            conn.close()
+
+            return jsonify({"status": "success", "data": result})
+        elif implementation == 'CUSTOM':
+            db = [manager_db] + worker_dbs
+            worker_times = {}
+
+            for dbs in db:
+                start = time.time()
+                try:
+                    conn = connect_db(worker_db)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1")  # Simple lightweight query for testing connection
+                    cursor.fetchall()
+                    cursor.close()
+                    conn.close()
+                    worker_times[worker_db["host"]] = time.time() - start_time
+                except Exception as e:
+                    print(f"Error with worker {worker_db['host']}: {str(e)}")
+                    worker_times[worker_db["host"]] = float('inf')
+                    
+            fastest_worker = min(worker_times, key=worker_times.get)
+            if worker_times[fastest_worker] == float('inf'):
+                return jsonify({"error": "No available workers"}), 500
+
+            # Connect to the fastest worker and execute the query
+            selected_worker_db = next(worker for worker in worker_dbs if worker["host"] == fastest_worker)
+            conn = connect_db(selected_worker_db)
+            cursor = conn.cursor()
+
+            print(f"Executing query on fastest worker {fastest_worker}: {query}")
+            cursor.execute(query)
+
+            result = cursor.fetchall()
+
+            print(f"Result: {result}")
+            cursor.close()
+            conn.close()
+
+            return jsonify({"status": "success", "data": result})
+
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

@@ -23,10 +23,11 @@ def read():
     
     if not data:
         return jsonify({'error': 'No query parameter provided'}), 400
-
+    if not implementation || implementation not in ['DH', 'RANDOM', 'CUSTOM']:
+        return jsonify({'error': 'Invalid implementation parameter provided'}), 400
     try:
         # Send the query to the trusted host
-        response = requests.get("http://PROXY_URL:8080/read", params={"query": data})
+        response = requests.get("http://PROXY_URL:8080/read", params={"query": data, "implementation": implementation})
         
         if response.status_code == 200:
             return jsonify(response.json()), 200
