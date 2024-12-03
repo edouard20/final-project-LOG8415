@@ -13,7 +13,7 @@ cat << 'EOF' > /home/ubuntu/app/proxy.py
 from flask import Flask, request, jsonify
 import mysql.connector
 import random
-import boto3
+import time
 app = Flask(__name__)
 
 def connect_db(db_config):
@@ -76,29 +76,28 @@ def read():
 
             return jsonify({"status": "success", "data": result})
         elif implementation == 'CUSTOM':
-            db = [manager_db] + worker_dbs
+            dbs = [manager_db] + worker_dbs
             worker_times = {}
 
-            for dbs in db:
+            for db in dbs:
                 start = time.time()
                 try:
-                    conn = connect_db(worker_db)
+                    conn = connect_db(db)
                     cursor = conn.cursor()
                     cursor.execute("SELECT 1")  # Simple lightweight query for testing connection
                     cursor.fetchall()
                     cursor.close()
                     conn.close()
-                    worker_times[worker_db["host"]] = time.time() - start_time
+                    worker_times[db["host"]] = time.time() - start
                 except Exception as e:
-                    print(f"Error with worker {worker_db['host']}: {str(e)}")
-                    worker_times[worker_db["host"]] = float('inf')
+                    print(f"Error with worker {db['host']}: {str(e)}")
+                    worker_times[db["host"]] = float('inf')
                     
             fastest_worker = min(worker_times, key=worker_times.get)
             if worker_times[fastest_worker] == float('inf'):
                 return jsonify({"error": "No available workers"}), 500
 
-            # Connect to the fastest worker and execute the query
-            selected_worker_db = next(worker for worker in worker_dbs if worker["host"] == fastest_worker)
+            selected_worker_db = next(db for db in dbs if db["host"] == fastest_worker)
             conn = connect_db(selected_worker_db)
             cursor = conn.cursor()
 
