@@ -42,10 +42,18 @@ def delete_security_group():
     ec2_client.delete_security_group(GroupId=security_group_id)
 
 if __name__ == '__main__':
-    key_pair_name = "test-key-pair"
-    instance_ids = get_instance_ids()
-    terminate_instances()
-    print("Waiting 2 minutes for instances to terminate...")
-    sleep(120)
-    delete_security_group()
+    # key_pair_name = "test-key-pair"
+    # instance_ids = get_instance_ids()
+    # terminate_instances()
+    # print("Waiting 2 minutes for instances to terminate...")
+
+    # sleep(120)
+    try:
+        ec2_client = boto3.client('ec2')
+        eips = ec2_client.describe_addresses()
+        for eip in eips['Addresses']:
+            print(f"Releasing Elastic IP: {eip['PublicIp']}")
+            ec2_client.release_address(AllocationId=eip['AllocationId'])
+    except Exception as e:
+        print(f"Error: {e}")
     print("Cleanup completed.")
