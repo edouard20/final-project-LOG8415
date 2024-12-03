@@ -38,30 +38,45 @@ def create_vpc():
     vpc = ec2.create_vpc(CidrBlock='10.0.0.0/16')
     return vpc['Vpc']['VpcId']
 
-def create_subnets(vpc_id):
-    ec2 = boto3.client('ec2')
+def create_subnets(ec2, vpc_id):
     public_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock='10.0.1.0/24')
     private_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock='10.0.2.0/24')
+    print(f"Creating public subnet: {public_subnet['Subnet']['SubnetId']}")
+    print(f"Creating private subnet: {private_subnet['Subnet']['SubnetId']}")
     return public_subnet['Subnet']['SubnetId'], private_subnet['Subnet']['SubnetId']
 
-def create_internet_gateway(vpc_id):
-    ec2 = boto3.client('ec2')
+def create_internet_gateway(ec2, vpc_id):
     internet_gateway = ec2.create_internet_gateway()
     igw_id = internet_gateway['InternetGateway']['InternetGatewayId']
+    print(f"Creating Internet Gateway: {igw_id}")
     ec2.attach_internet_gateway(VpcId=vpc_id, InternetGatewayId=igw_id)
     return igw_id
 
-def create_nat_gateway(public_subnet_id):
-    ec2 = boto3.client('ec2')
+def create_nat_gateway(ec2, public_subnet_id):
     allocation = ec2.allocate_address(Domain='vpc')
 
     nat_gateway = ec2.create_nat_gateway(
         SubnetId=public_subnet_id,
         AllocationId=allocation['AllocationId']
     )
-    return nat_gateway['NatGateway']['NatGatewayId'], allocation['AllocationId']
+    nat_gateway_id = nat_gateway['NatGateway']['NatGatewayId']
+    print(f"Waiting for NAT Gateway: {nat_gateway_id} to be created")
+    waiter = ec2.get_waiter('nat_gateway_available')
+    try:
+        waiter.wait(
+            NatGatewayIds=[nat_gateway_id],
+            WaiterConfig={
+                'Delay': 15,
+                'MaxAttempts': 20
+            }
+        )
+        print(f"NAT Gateway {nat_gateway_id} is now available.")
+    except Exception as e:
+        print(f"Error waiting for NAT Gateway to become available: {e}")
+        raise
+    return nat_gateway_id, allocation['AllocationId']
 
-def create_route_tables(vpc_id, igw_id, public_subnet_id, private_subnet_id, nat_gateway_id):
+def create_route_tables(ec2, vpc_id, igw_id, public_subnet_id, private_subnet_id, nat_gateway_id):
     public_route_table = ec2.create_route_table(VpcId=vpc_id)
     public_rt_id = public_route_table['RouteTable']['RouteTableId']
     ec2.create_route(
@@ -73,7 +88,7 @@ def create_route_tables(vpc_id, igw_id, public_subnet_id, private_subnet_id, nat
     print(f"Created Public Route Table: {public_rt_id}")
 
     private_route_table = ec2.create_route_table(VpcId=vpc_id)
-    private_rt_id = private_route_table['RouteTableId']
+    private_rt_id = private_route_table['RouteTable']['RouteTableId']
     ec2.create_route(
         RouteTableId=private_rt_id,
         DestinationCidrBlock='0.0.0.0/0',
@@ -84,13 +99,15 @@ def create_route_tables(vpc_id, igw_id, public_subnet_id, private_subnet_id, nat
 
     return public_rt_id, private_rt_id
 
-def create_security_groups(vpc_id):
+def create_security_groups(ec2, vpc_id):
     public_sg = ec2.create_security_group(
         GroupName='public-TP3',
+        Description='Security group for public instances',
         VpcId=vpc_id
     )
     private_sg = ec2.create_security_group(
         GroupName='private-TP3',
+        Description='Security group for private instances',
         VpcId=vpc_id
     )
     
@@ -116,8 +133,7 @@ def create_security_groups(vpc_id):
     return public_sg['GroupId'], private_sg['GroupId']
 
 
-def get_SQL_cluster_ips(role):
-    ec2_client = boto3.client("ec2")
+def get_SQL_cluster_ips(ec2_client, role):
     response = ec2_client.describe_instances(
         Filters=[
             {"Name": "tag:Role", "Values": [role]},
@@ -157,8 +173,7 @@ def get_SQL_cluster_ips(role):
 
     return ip_addresses
 
-def delete_resources(resource_ids):
-    ec2 = boto3.client('ec2')
+def delete_resources(ec2, resource_ids):
 
     vpc_id = resource_ids.get('vpc_id')
     public_subnet_id = resource_ids.get('public_subnet_id')
@@ -214,14 +229,14 @@ ec2 = boto3.client('ec2')
 verify_valid_credentials()
 create_login_key_pair(ec2_client)
 vpc_id = create_vpc()
-public_subnet_id, private_subnet_id = create_subnets(vpc_id)
-internet_gateway_id = create_internet_gateway(vpc_id)
-nat_gateway_id, allocation_id = create_nat_gateway(public_subnet_id)
-public_rt_id, private_rt_id = create_route_tables(vpc_id, internet_gateway_id, public_subnet_id, private_subnet_id, nat_gateway_id)
-public_security_group, private_security_group = create_security_groups(vpc_id)
+public_subnet_id, private_subnet_id = create_subnets(ec2, vpc_id)
+internet_gateway_id = create_internet_gateway(ec2, vpc_id)
+nat_gateway_id, allocation_id = create_nat_gateway(ec2, public_subnet_id)
+public_rt_id, private_rt_id = create_route_tables(ec2, vpc_id, internet_gateway_id, public_subnet_id, private_subnet_id, nat_gateway_id)
+public_security_group_id, private_security_group_id = create_security_groups(ec2, vpc_id)
 time.sleep(15)
-worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', private_security_group[0], private_security_group[1], False, USER_DATA)
-manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', private_security_group[0], private_security_group[1], False, USER_DATA)
+worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', private_security_group_id, private_subnet_id, False, USER_DATA)
+manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', private_security_group_id, private_subnet_id, False, USER_DATA)
 time.sleep(15)
 manager_ip = get_SQL_cluster_ips("Manager")
 worker_ips = get_SQL_cluster_ips("Worker")
@@ -229,8 +244,8 @@ worker_ips = get_SQL_cluster_ips("Worker")
 PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
-proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group[0], private_security_group[1], False, PROXY_USER_DATA)
-trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group[0], private_security_group[1], False, USER_DATA)
+proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group_id, private_subnet_id, False, PROXY_USER_DATA)
+trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, USER_DATA)
 time.sleep(15)
 
 response = ec2.describe_instances(
@@ -248,10 +263,10 @@ ip_addresses = [
 
 print(ip_addresses)
 GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
-gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group[0], public_security_group[1], True, USER_DATA)
+gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, USER_DATA)
 
 time.sleep(600)
-delete_resources({
+delete_resources(ec2, {
     'vpc_id': vpc_id,
     'public_subnet_id': public_subnet_id,
     'private_subnet_id': private_subnet_id,
