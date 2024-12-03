@@ -17,7 +17,7 @@ def get_instance_ids():
     print(f"Found EC2 Instances: {instance_ids}")
     return instance_ids
 
-def terminate_instances():
+def terminate_instances(instance_ids):
     print(f"Terminating instances: {instance_ids}")
     try:
         ec2_client.terminate_instances(InstanceIds=instance_ids)
@@ -42,10 +42,10 @@ def delete_security_group():
     ec2_client.delete_security_group(GroupId=security_group_id)
 
 if __name__ == '__main__':
-    # key_pair_name = "test-key-pair"
-    # instance_ids = get_instance_ids()
-    # terminate_instances()
-    # print("Waiting 2 minutes for instances to terminate...")
+    key_pair_name = "test-key-pair"
+    instance_ids = get_instance_ids()
+    terminate_instances()
+    print("Waiting 2 minutes for instances to terminate...")
 
     # sleep(120)
     try:

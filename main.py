@@ -7,7 +7,7 @@ from user_data.user_data import USER_DATA
 from user_data.proxy_user_data import PROXY_USER_DATA
 from user_data.gatekeeper_user_data import GATEKEEPER_USER_DATA
 from user_data.trusted_host_user_data import TRUSTED_HOST_USER_DATA
-
+from cleanup import get_instance_ids, terminate_instances
 def verify_valid_credentials():
     try:
         sts_client = boto3.client('sts')
@@ -16,11 +16,11 @@ def verify_valid_credentials():
     except NoCredentialsError as e:
         logging.info("No credentials found")
     except ClientError as e:
-        logging.info(f"Error: {e}")
+        logging.error(f"Error: {e}")
 
 def create_ec2_instances(instance_type, count, name, security_group_id, subnet_id, isPublic, user_data):
     try:
-        ec2_client.create_instances(
+        instance = ec2_client.create_instances(
             ImageId='ami-0e86e20dae9224db8', MaxCount=count, InstanceType = instance_type, MinCount=1, KeyName='test-key-pair',TagSpecifications=[  {'ResourceType': 'instance','Tags': [  {'Key': 'Name',
                     'Value': name}]}], NetworkInterfaces=[
             {
@@ -30,10 +30,12 @@ def create_ec2_instances(instance_type, count, name, security_group_id, subnet_i
                 'AssociatePublicIpAddress': isPublic
             }
         ],
-                                     UserData=user_data)
+        UserData=user_data)
         logging.info(f"Creating {count} {name} instances")
     except ClientError as e:
-        logging.info(f"Error: {e}")
+        logging.error(f"Error: {e}")
+    
+    return instance[0].id
 
 def create_vpc():
     ec2 = boto3.client('ec2')
@@ -74,7 +76,7 @@ def create_nat_gateway(ec2, public_subnet_id):
         )
         logging.info(f"NAT Gateway {nat_gateway_id} is now available.")
     except Exception as e:
-        logging.info(f"Error waiting for NAT Gateway to become available: {e}")
+        logging.error(f"Error waiting for NAT Gateway to become available: {e}")
         raise
     return nat_gateway_id, allocation['AllocationId']
 
@@ -157,7 +159,7 @@ def create_login_key_pair(ec2_client):
             file.write(key_pair.key_material)
         os.chmod('test-key-pair.pem', 0o444)
     except ClientError as e:
-        logging.info(f"Error: {e}")
+        logging.error(f"Error: {e}")
 
 def get_SQL_cluster_ips(role):
     ec2_client = boto3.client("ec2")
@@ -174,6 +176,28 @@ def get_SQL_cluster_ips(role):
     ]
 
     return ip_addresses
+
+def wait_for_instance(instance_id):
+    logging.info(f"Waiting for instance {instance_id} to boot up")
+    while True:
+        response = ec2.describe_instance_status(InstanceIds=[instance_id])
+        
+        if response['InstanceStatuses']:
+            status = response['InstanceStatuses'][0]
+            instance_state = status['InstanceState']['Name']
+            system_status = status['SystemStatus']['Status']
+            instance_status = status['InstanceStatus']['Status']
+            
+            logging.info(f"Instance {instance_id} state: {instance_state}, "
+                         f"System status: {system_status}, Instance status: {instance_status}")
+            
+            if instance_state == 'running' and system_status == 'ok' and instance_status == 'ok':
+                logging.info(f"Instance {instance_id} is ready.")
+                break
+        else:
+            logging.info(f"Instance {instance_id} status not yet available.")
+        
+        time.sleep(10)
 
 def delete_resources(ec2, resource_ids):
 
@@ -205,19 +229,46 @@ def delete_resources(ec2, resource_ids):
 
     for route_table_id in route_table_ids:
         logging.info(f"Deleting route table: {route_table_id}")
-        ec2.delete_route_table(RouteTableId=route_table_id)
-        logging.info(f"Route table {route_table_id} deleted.")
+        try:
+            response = ec2.describe_route_tables(RouteTableIds=[route_table_id])
+            for association in response['RouteTables'][0]['Associations']:
+                if not association['Main']:  # Skip disassociating the main route table
+                    association_id = association['RouteTableAssociationId']
+                    logging.info(f"Disassociating route table: {association_id}")
+                    try:
+                        ec2.disassociate_route_table(AssociationId=association_id)
+                        logging.info(f"Successfully disassociated: {association_id}")
+                    except ClientError as e:
+                        logging.error(f"Error disassociating route table: {e}")
+            
+            # Delete the route table after disassociations
+            ec2.delete_route_table(RouteTableId=route_table_id)
+            logging.info(f"Route table {route_table_id} deleted successfully.")
+        except ClientError as e:
+            logging.error(f"Error deleting route table {route_table_id}: {e}")
 
     if public_subnet_id:
         logging.info(f"Deleting public subnet: {public_subnet_id}")
         ec2.delete_subnet(SubnetId=public_subnet_id)
         logging.info(f"Public subnet {public_subnet_id} deleted.")
-
+    time.sleep(90)
     if private_subnet_id:
         logging.info(f"Deleting private subnet: {private_subnet_id}")
         ec2.delete_subnet(SubnetId=private_subnet_id)
         logging.info(f"Private subnet {private_subnet_id} deleted.")
+    time.sleep(60)
+    logging.info("Deleting security groups...")
+    try:
+        security_groups = ec2.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['SecurityGroups']
+        for sg in security_groups:
+            if sg['GroupName'] != 'default':  # Skip default security group
+                logging.info(f"Deleting security group {sg['GroupId']}")
+                ec2.delete_security_group(GroupId=sg['GroupId'])
+                logging.info(f"Security group {sg['GroupId']} deleted.")
+    except ClientError as e:
+        logging.error(f"Error deleting security groups: {e}")
 
+    time.sleep(30)
     if vpc_id:
         logging.info(f"Deleting VPC: {vpc_id}")
         ec2.delete_vpc(VpcId=vpc_id)
@@ -243,8 +294,9 @@ public_rt_id, private_rt_id = create_route_tables(ec2, vpc_id, internet_gateway_
 public_security_group_id, private_security_group_id = create_security_groups(ec2, vpc_id)
 time.sleep(15)
 worker_instances = create_ec2_instances('t2.micro', 2, 'Worker', private_security_group_id, private_subnet_id, False, USER_DATA)
-manager_instance = create_ec2_instances('t2.micro', 1, 'Manager', private_security_group_id, private_subnet_id, False, USER_DATA)
-time.sleep(15)
+manager_instance_id = create_ec2_instances('t2.micro', 1, 'Manager', private_security_group_id, private_subnet_id, False, USER_DATA)
+time.sleep(30)
+wait_for_instance(manager_instance_id)
 manager_ip = get_SQL_cluster_ips("Manager")
 worker_ips = get_SQL_cluster_ips("Worker")
 
@@ -252,8 +304,9 @@ PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
 proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group_id, private_subnet_id, False, PROXY_USER_DATA)
-trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, TRUSTED_HOST_USER_DATA)
+trusted_host_instance_id = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, TRUSTED_HOST_USER_DATA)
 time.sleep(15)
+wait_for_instance(trusted_host_instance_id)
 
 response = ec2.describe_instances(
         Filters=[
@@ -268,11 +321,13 @@ ip_addresses = [
         for instance in reservation["Instances"]
     ]
 
-logging.info(ip_addresses)
 GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
-gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, GATEKEEPER_USER_DATA)
+gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, USER_DATA)
 
-time.sleep(600)
+time.sleep(400)
+instance_ids = get_instance_ids()
+terminate_instances(instance_ids)
+time.sleep(60)
 delete_resources(ec2, {
     'vpc_id': vpc_id,
     'public_subnet_id': public_subnet_id,
