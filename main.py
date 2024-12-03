@@ -303,7 +303,24 @@ worker_ips = get_SQL_cluster_ips("Worker")
 PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
-proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group_id, private_subnet_id, False, PROXY_USER_DATA)
+proxy_instance_id = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group_id, private_subnet_id, False, PROXY_USER_DATA)
+time.sleep(15)
+wait_for_instance(proxy_instance_id)
+
+response = ec2.describe_instances(
+        Filters=[
+            {"Name": "tag:Name", "Values": ["Proxy"]},
+            {"Name": "instance-state-name", "Values": ["running"]}
+        ]
+    )
+
+ip_addresses = [
+        instance["PrivateIpAddress"]
+        for reservation in response["Reservations"]
+        for instance in reservation["Instances"]
+    ]
+
+TRUSTED_HOST_USER_DATA = TRUSTED_HOST_USER_DATA.replace("PROXY_URL", ip_addresses[0])
 trusted_host_instance_id = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, TRUSTED_HOST_USER_DATA)
 time.sleep(15)
 wait_for_instance(trusted_host_instance_id)
@@ -322,7 +339,7 @@ ip_addresses = [
     ]
 
 GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
-gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, USER_DATA)
+gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, GATEKEEPER_USER_DATA)
 
 time.sleep(400)
 instance_ids = get_instance_ids()

@@ -1,6 +1,4 @@
-GATEKEEPER_USER_DATA = """
-#!/bin/bash
-sleep 180
+GATEKEEPER_USER_DATA = """#!/bin/bash
 touch test.txt
 exec > /home/ubuntu/app/script.log 2>&1
 echo "Starting UserData Script..."
@@ -30,7 +28,7 @@ def read():
 
     try:
         # Send the query to the trusted host
-        response = requests.get("TRUSTED_HOST_URL:8080/read", json={"query": data})
+        response = requests.get("http://TRUSTED_HOST_URL:8080/read", json={"query": data})
         
         if response.status_code == 200:
             # Forward the response from the trusted host back to the client

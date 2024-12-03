@@ -1,5 +1,4 @@
-TRUSTED_HOST_USER_DATA = """
-#!/bin/bash
+TRUSTED_HOST_USER_DATA = """#!/bin/bash
 sudo -i
 sudo apt update -y
 sudo apt-get install -y sysbench python3 python3-pip
@@ -22,12 +21,11 @@ app = Flask(__name__)
 def read():
     data = request.args.get("query")
     try:
-        # response = requests.get(TRUSTED_HOST_URL:8080/read, json=data)
-        # if response.status_code == 200:
-        #     # Once trusted host returns, send the response back to the user
-        return jsonify({'SUCCESS': 'Was able to reach trusted_host instance'}), 200
-        # else:
-        #     return jsonify({'error': 'Error in trusted host response'}), 500
+        response = requests.get("http://PROXY_URL:8080/read", json=data)
+        if response.status_code == 200:
+            return jsonify({'SUCCESS': 'Was able to reach proxy instance'}), 200
+        else:
+            return jsonify({'error': 'Error in trusted host response'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
