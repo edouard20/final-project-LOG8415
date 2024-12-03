@@ -28,13 +28,11 @@ def read():
 
     try:
         # Send the query to the trusted host
-        response = requests.get("http://TRUSTED_HOST_URL:8080/read", json={"query": data})
+        response = requests.get("http://TRUSTED_HOST_URL:8080/read", params={"query": data})
         
         if response.status_code == 200:
-            # Forward the response from the trusted host back to the client
             return jsonify(response.json()), 200
         else:
-            # Handle non-200 responses from the trusted host
             return jsonify({'error': 'Error in trusted host response', 'status_code': response.status_code}), 500
     except Exception as e:
         return jsonify({'error': 'Failed to contact trusted host', 'details': str(e)}), 500

@@ -320,6 +320,7 @@ ip_addresses = [
         for instance in reservation["Instances"]
     ]
 
+logging.info(f"Proxy instance IP: {ip_addresses[0]}")
 TRUSTED_HOST_USER_DATA = TRUSTED_HOST_USER_DATA.replace("PROXY_URL", ip_addresses[0])
 trusted_host_instance_id = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, TRUSTED_HOST_USER_DATA)
 time.sleep(15)
@@ -341,7 +342,7 @@ ip_addresses = [
 GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
 gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, GATEKEEPER_USER_DATA)
 
-time.sleep(400)
+time.sleep(420)
 instance_ids = get_instance_ids()
 terminate_instances(instance_ids)
 time.sleep(60)

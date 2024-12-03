@@ -20,14 +20,20 @@ app = Flask(__name__)
 @app.route("/read", methods=["GET"])
 def read():
     data = request.args.get("query")
+    
+    if not data:
+        return jsonify({'error': 'No query parameter provided'}), 400
+
     try:
-        response = requests.get("http://PROXY_URL:8080/read", json=data)
+        # Send the query to the trusted host
+        response = requests.get("http://PROXY_URL:8080/read", params={"query": data})
+        
         if response.status_code == 200:
-            return jsonify({'SUCCESS': 'Was able to reach proxy instance'}), 200
+            return jsonify(response.json()), 200
         else:
-            return jsonify({'error': 'Error in trusted host response'}), 500
+            return jsonify({'error': 'Error in trusted host response', 'status_code': response.status_code}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to contact trusted host', 'details': str(e)}), 500
 
 @app.route("/write", methods=["POST"])
 def write():
