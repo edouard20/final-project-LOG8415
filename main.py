@@ -2,19 +2,21 @@ import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 import os
 import time
+import logging
 from user_data.user_data import USER_DATA
 from user_data.proxy_user_data import PROXY_USER_DATA
 from user_data.gatekeeper_user_data import GATEKEEPER_USER_DATA
+from user_data.trusted_host_user_data import TRUSTED_HOST_USER_DATA
 
 def verify_valid_credentials():
     try:
         sts_client = boto3.client('sts')
         sts_client.get_caller_identity()
-        print("Valid credentials")
+        logging.info("Valid credentials")
     except NoCredentialsError as e:
-        print("No credentials found")
+        logging.info("No credentials found")
     except ClientError as e:
-        print(f"Error: {e}")
+        logging.info(f"Error: {e}")
 
 def create_ec2_instances(instance_type, count, name, security_group_id, subnet_id, isPublic, user_data):
     try:
@@ -29,9 +31,9 @@ def create_ec2_instances(instance_type, count, name, security_group_id, subnet_i
             }
         ],
                                      UserData=user_data)
-        print(f"Creating {count} {name} instances")
+        logging.info(f"Creating {count} {name} instances")
     except ClientError as e:
-        print(f"Error: {e}")
+        logging.info(f"Error: {e}")
 
 def create_vpc():
     ec2 = boto3.client('ec2')
@@ -41,14 +43,14 @@ def create_vpc():
 def create_subnets(ec2, vpc_id):
     public_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock='10.0.1.0/24')
     private_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock='10.0.2.0/24')
-    print(f"Creating public subnet: {public_subnet['Subnet']['SubnetId']}")
-    print(f"Creating private subnet: {private_subnet['Subnet']['SubnetId']}")
+    logging.info(f"Creating public subnet: {public_subnet['Subnet']['SubnetId']}")
+    logging.info(f"Creating private subnet: {private_subnet['Subnet']['SubnetId']}")
     return public_subnet['Subnet']['SubnetId'], private_subnet['Subnet']['SubnetId']
 
 def create_internet_gateway(ec2, vpc_id):
     internet_gateway = ec2.create_internet_gateway()
     igw_id = internet_gateway['InternetGateway']['InternetGatewayId']
-    print(f"Creating Internet Gateway: {igw_id}")
+    logging.info(f"Creating Internet Gateway: {igw_id}")
     ec2.attach_internet_gateway(VpcId=vpc_id, InternetGatewayId=igw_id)
     return igw_id
 
@@ -60,7 +62,7 @@ def create_nat_gateway(ec2, public_subnet_id):
         AllocationId=allocation['AllocationId']
     )
     nat_gateway_id = nat_gateway['NatGateway']['NatGatewayId']
-    print(f"Waiting for NAT Gateway: {nat_gateway_id} to be created")
+    logging.info(f"Waiting for NAT Gateway: {nat_gateway_id} to be created")
     waiter = ec2.get_waiter('nat_gateway_available')
     try:
         waiter.wait(
@@ -70,9 +72,9 @@ def create_nat_gateway(ec2, public_subnet_id):
                 'MaxAttempts': 20
             }
         )
-        print(f"NAT Gateway {nat_gateway_id} is now available.")
+        logging.info(f"NAT Gateway {nat_gateway_id} is now available.")
     except Exception as e:
-        print(f"Error waiting for NAT Gateway to become available: {e}")
+        logging.info(f"Error waiting for NAT Gateway to become available: {e}")
         raise
     return nat_gateway_id, allocation['AllocationId']
 
@@ -85,7 +87,7 @@ def create_route_tables(ec2, vpc_id, igw_id, public_subnet_id, private_subnet_id
         GatewayId=igw_id
     )
     ec2.associate_route_table(SubnetId=public_subnet_id, RouteTableId=public_rt_id)
-    print(f"Created Public Route Table: {public_rt_id}")
+    logging.info(f"Created Public Route Table: {public_rt_id}")
 
     private_route_table = ec2.create_route_table(VpcId=vpc_id)
     private_rt_id = private_route_table['RouteTable']['RouteTableId']
@@ -95,7 +97,7 @@ def create_route_tables(ec2, vpc_id, igw_id, public_subnet_id, private_subnet_id
         NatGatewayId=nat_gateway_id
     )
     ec2.associate_route_table(SubnetId=private_subnet_id, RouteTableId=private_rt_id)
-    print(f"Created Private Route Table: {private_rt_id}")
+    logging.info(f"Created Private Route Table: {private_rt_id}")
 
     return public_rt_id, private_rt_id
 
@@ -128,8 +130,8 @@ def create_security_groups(ec2, vpc_id):
             {'IpProtocol': '-1', 'UserIdGroupPairs': [{'GroupId': private_sg['GroupId']}]},
         ]
     )
-    print(f"Created Public SG: {public_sg['GroupId']}")
-    print(f"Created Private SG: {private_sg['GroupId']}")
+    logging.info(f"Created Public SG: {public_sg['GroupId']}")
+    logging.info(f"Created Private SG: {private_sg['GroupId']}")
     return public_sg['GroupId'], private_sg['GroupId']
 
 
@@ -150,12 +152,12 @@ def get_SQL_cluster_ips(ec2_client, role):
 def create_login_key_pair(ec2_client):
     try:
         key_pair = ec2_client.create_key_pair(KeyName='test-key-pair', KeyType='rsa')
-        print("Creating a key-pair to connect to the instances")
+        logging.info("Creating a key-pair to connect to the instances")
         with open('test-key-pair.pem', 'w') as file:
             file.write(key_pair.key_material)
         os.chmod('test-key-pair.pem', 0o444)
     except ClientError as e:
-        print(f"Error: {e}")
+        logging.info(f"Error: {e}")
 
 def get_SQL_cluster_ips(role):
     ec2_client = boto3.client("ec2")
@@ -184,45 +186,50 @@ def delete_resources(ec2, resource_ids):
     allocation_id = resource_ids.get('allocation_id')
 
     if nat_gateway_id:
-        print(f"Deleting NAT Gateway: {nat_gateway_id}")
+        logging.info(f"Deleting NAT Gateway: {nat_gateway_id}")
         ec2.delete_nat_gateway(NatGatewayId=nat_gateway_id)
         waiter = ec2.get_waiter('nat_gateway_deleted')
         waiter.wait(NatGatewayIds=[nat_gateway_id])
-        print(f"NAT Gateway {nat_gateway_id} deleted.")
+        logging.info(f"NAT Gateway {nat_gateway_id} deleted.")
 
     if allocation_id:
-        print(f"Releasing Elastic IP: {allocation_id}")
+        logging.info(f"Releasing Elastic IP: {allocation_id}")
         ec2.release_address(AllocationId=allocation_id)
-        print(f"Elastic IP {allocation_id} released.")
+        logging.info(f"Elastic IP {allocation_id} released.")
 
     if internet_gateway_id and vpc_id:
-        print(f"Detaching and deleting Internet Gateway: {internet_gateway_id}")
+        logging.info(f"Detaching and deleting Internet Gateway: {internet_gateway_id}")
         ec2.detach_internet_gateway(InternetGatewayId=internet_gateway_id, VpcId=vpc_id)
         ec2.delete_internet_gateway(InternetGatewayId=internet_gateway_id)
-        print(f"Internet Gateway {internet_gateway_id} deleted.")
+        logging.info(f"Internet Gateway {internet_gateway_id} deleted.")
 
     for route_table_id in route_table_ids:
-        print(f"Deleting route table: {route_table_id}")
+        logging.info(f"Deleting route table: {route_table_id}")
         ec2.delete_route_table(RouteTableId=route_table_id)
-        print(f"Route table {route_table_id} deleted.")
+        logging.info(f"Route table {route_table_id} deleted.")
 
     if public_subnet_id:
-        print(f"Deleting public subnet: {public_subnet_id}")
+        logging.info(f"Deleting public subnet: {public_subnet_id}")
         ec2.delete_subnet(SubnetId=public_subnet_id)
-        print(f"Public subnet {public_subnet_id} deleted.")
+        logging.info(f"Public subnet {public_subnet_id} deleted.")
 
     if private_subnet_id:
-        print(f"Deleting private subnet: {private_subnet_id}")
+        logging.info(f"Deleting private subnet: {private_subnet_id}")
         ec2.delete_subnet(SubnetId=private_subnet_id)
-        print(f"Private subnet {private_subnet_id} deleted.")
+        logging.info(f"Private subnet {private_subnet_id} deleted.")
 
     if vpc_id:
-        print(f"Deleting VPC: {vpc_id}")
+        logging.info(f"Deleting VPC: {vpc_id}")
         ec2.delete_vpc(VpcId=vpc_id)
-        print(f"VPC {vpc_id} deleted.")
+        logging.info(f"VPC {vpc_id} deleted.")
 
-    print("All resources have been successfully deleted.")
+    logging.info("All resources have been successfully deleted.")
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 ec2_client = boto3.resource('ec2')
 ec2 = boto3.client('ec2')
 
@@ -245,7 +252,7 @@ PROXY_USER_DATA = PROXY_USER_DATA.replace("manager_ip", manager_ip[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip1", worker_ips[0])
 PROXY_USER_DATA = PROXY_USER_DATA.replace("worker_ip2", worker_ips[1])
 proxy_instance = create_ec2_instances('t2.large', 1, 'Proxy', private_security_group_id, private_subnet_id, False, PROXY_USER_DATA)
-trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, USER_DATA)
+trusted_host_instance = create_ec2_instances('t2.large', 1, 'Trusted_Host', private_security_group_id, private_subnet_id, False, TRUSTED_HOST_USER_DATA)
 time.sleep(15)
 
 response = ec2.describe_instances(
@@ -261,9 +268,9 @@ ip_addresses = [
         for instance in reservation["Instances"]
     ]
 
-print(ip_addresses)
+logging.info(ip_addresses)
 GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
-gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, USER_DATA)
+gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, GATEKEEPER_USER_DATA)
 
 time.sleep(600)
 delete_resources(ec2, {
