@@ -8,6 +8,8 @@ from user_data.proxy_user_data import PROXY_USER_DATA
 from user_data.gatekeeper_user_data import GATEKEEPER_USER_DATA
 from user_data.trusted_host_user_data import TRUSTED_HOST_USER_DATA
 from cleanup import get_instance_ids, terminate_instances
+from requests_to_send import send_read_request, send_write_request, get_benchmarks
+
 def verify_valid_credentials():
     try:
         sts_client = boto3.client('sts')
@@ -118,9 +120,6 @@ def create_security_groups(ec2, vpc_id):
     ec2.authorize_security_group_ingress(
         GroupId=public_sg['GroupId'],
         IpPermissions=[
-            {'IpProtocol': 'tcp', 'FromPort': 22, 'ToPort': 22, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
-            {'IpProtocol': 'tcp', 'FromPort': 80, 'ToPort': 80, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
-            {'IpProtocol': 'tcp', 'FromPort': 443, 'ToPort': 443, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
             {'IpProtocol': 'tcp', 'FromPort': 8080, 'ToPort': 8080, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},
         ]
     )
@@ -232,7 +231,7 @@ def delete_resources(ec2, resource_ids):
         try:
             response = ec2.describe_route_tables(RouteTableIds=[route_table_id])
             for association in response['RouteTables'][0]['Associations']:
-                if not association['Main']:  # Skip disassociating the main route table
+                if not association['Main']:
                     association_id = association['RouteTableAssociationId']
                     logging.info(f"Disassociating route table: {association_id}")
                     try:
@@ -241,7 +240,6 @@ def delete_resources(ec2, resource_ids):
                     except ClientError as e:
                         logging.error(f"Error disassociating route table: {e}")
             
-            # Delete the route table after disassociations
             ec2.delete_route_table(RouteTableId=route_table_id)
             logging.info(f"Route table {route_table_id} deleted successfully.")
         except ClientError as e:
@@ -268,7 +266,7 @@ def delete_resources(ec2, resource_ids):
     except ClientError as e:
         logging.error(f"Error deleting security groups: {e}")
 
-    time.sleep(30)
+    time.sleep(90)
     if vpc_id:
         logging.info(f"Deleting VPC: {vpc_id}")
         ec2.delete_vpc(VpcId=vpc_id)
@@ -340,11 +338,45 @@ ip_addresses = [
     ]
 
 GATEKEEPER_USER_DATA = GATEKEEPER_USER_DATA.replace("TRUSTED_HOST_URL", ip_addresses[0])
-gatekeeper_instance = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, GATEKEEPER_USER_DATA)
+gatekeeper_instance_id = create_ec2_instances('t2.large', 1, 'Gatekeeper',  public_security_group_id, public_subnet_id, True, GATEKEEPER_USER_DATA)
+time.sleep(15)
+wait_for_instance(gatekeeper_instance_id)
+response = ec2.describe_instances(
+        Filters=[
+            {"Name": "tag:Name", "Values": ["Gatekeeper"]},
+            {"Name": "instance-state-name", "Values": ["running"]}
+        ]
+    )
 
-time.sleep(420)
+ip_addresses = [
+        instance["PublicIpAddress"]
+        for reservation in response["Reservations"]
+        for instance in reservation["Instances"]
+    ]
+
+for i in range(1000):
+    logging.info(send_write_request(ip_addresses[0], "DH"))
+
+for i in range(1000):
+    logging.info(send_read_request(ip_addresses[0], "DH"))
+
+for i in range(1000):
+    logging.info(send_write_request(ip_addresses[0], "CUSTOM"))
+
+for i in range(1000):
+    logging.info(send_read_request(ip_addresses[0], "CUSTOM"))
+
+for i in range(1000):
+    logging.info(send_write_request(ip_addresses[0], "RANDOM"))
+
+for i in range(1000):
+    logging.info(send_read_request(ip_addresses[0], "RANDOM"))
+
+logging.info(get_benchmarks(ip_addresses[0]))
+time.sleep(10)
 instance_ids = get_instance_ids()
 terminate_instances(instance_ids)
+
 time.sleep(60)
 delete_resources(ec2, {
     'vpc_id': vpc_id,

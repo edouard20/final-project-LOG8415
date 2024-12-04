@@ -1,5 +1,6 @@
 from time import sleep
 import boto3
+import logging
 
 ec2_client = boto3.client('ec2')
 elbv2_client = boto3.client('elbv2')
@@ -14,15 +15,15 @@ def get_instance_ids():
             instance_id = instance['InstanceId']
             instance_ids.append(instance_id)
     
-    print(f"Found EC2 Instances: {instance_ids}")
+    logging.info(f"Found EC2 Instances: {instance_ids}")
     return instance_ids
 
 def terminate_instances(instance_ids):
-    print(f"Terminating instances: {instance_ids}")
+    logging.info(f"Terminating instances: {instance_ids}")
     try:
         ec2_client.terminate_instances(InstanceIds=instance_ids)
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         
 def get_security_group_id():
     response = ec2_client.describe_security_groups( Filters=[
@@ -33,12 +34,12 @@ def get_security_group_id():
             ]
         )
     security_group_ids = [sg['GroupId'] for sg in response['SecurityGroups']]
-    print(f"Found Security Groups: {security_group_ids}")
+    logging.info(f"Found Security Groups: {security_group_ids}")
     return security_group_ids
 
 def delete_security_group():
     security_group_id = get_security_group_id()[0]
-    print(f"Deleting Security Group: {security_group_id}")
+    logging.info(f"Deleting Security Group: {security_group_id}")
     ec2_client.delete_security_group(GroupId=security_group_id)
 
 if __name__ == '__main__':
@@ -47,7 +48,6 @@ if __name__ == '__main__':
     terminate_instances()
     print("Waiting 2 minutes for instances to terminate...")
 
-    # sleep(120)
     try:
         ec2_client = boto3.client('ec2')
         eips = ec2_client.describe_addresses()

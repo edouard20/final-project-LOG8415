@@ -20,50 +20,49 @@ app = Flask(__name__)
 @app.route("/read", methods=["GET"])
 def read():
     data = request.args.get("query")
-    
+    implementation = request.args.get("implementation")
+
     if not data:
         return jsonify({'error': 'No query parameter provided'}), 400
-    if not implementation || implementation not in ['DH', 'RANDOM', 'CUSTOM']:
+    if not implementation or implementation not in ['DH', 'RANDOM', 'CUSTOM']:
         return jsonify({'error': 'Invalid implementation parameter provided'}), 400
     try:
-        # Send the query to the trusted host
         response = requests.get("http://PROXY_URL:8080/read", params={"query": data, "implementation": implementation})
         
         if response.status_code == 200:
             return jsonify(response.json()), 200
         else:
-            return jsonify({'error': 'Error in trusted host response', 'status_code': response.status_code}), 500
+            return jsonify({'error': 'Error in proxy response', 'status_code': response.status_code}), 500
     except Exception as e:
-        return jsonify({'error': 'Failed to contact trusted host', 'details': str(e)}), 500
+        return jsonify({'error': 'Failed to contact proxy', 'details': str(e)}), 500
 
 @app.route("/write", methods=["POST"])
 def write():
+    data = request.json.get("query")
+    implementation = request.json.get("implementation")
+
+    if not data:
+        return jsonify({'error': 'No query parameter provided'}), 400
+    if not implementation or implementation not in ['DH', 'RANDOM', 'CUSTOM']:
+        return jsonify({'error': 'Invalid implementation parameter provided'}), 400
+
     try:
-        # Step 1: Parse the request data
-        request_data = request.get_json()
-        query = request_data.get("query")  # SQL write query from client
+        response = requests.post("http://PROXY_URL:8080/write", json={"query": data, "implementation": implementation})
 
-        if not query:
-            return jsonify({"status": "error", "message": "No query provided"}), 400
-
-        # Step 2: Send write request to the Manager (Primary DB)
-        conn = connect_db(manager_db)  # Connect to Manager (Primary)
-        cursor = conn.cursor()
-        cursor.execute(query)  # Execute the write query
-        conn.commit()
-
-        # Step 3: Replicate the data to all Workers
-        for worker_db in worker_dbs:
-            replicate_to_worker(worker_db, query)
-
-        cursor.close()
-        conn.close()
-
-        return jsonify({"status": "success", "message": "Write query executed and replicated to workers"}), 200
-
+        if response.status_code == 200:
+            return jsonify(response.json()), 200
+        else:
+            return jsonify({'error': 'Error in proxy response', 'status_code': response.status_code}), 500
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-      
+        return jsonify({'error': 'Failed to contact proxy', 'details': str(e)}), 500
+
+@app.route("/benchmarks", methods=["GET"])
+def benchmarks():
+    try:
+        response = requests.get("http://PROXY_URL:8080/benchmarks")
+        return jsonify(response.json()), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to contact proxy', 'details': str(e)}), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
 EOF

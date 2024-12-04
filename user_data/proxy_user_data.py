@@ -24,10 +24,6 @@ def connect_db(db_config):
         database=db_config['database']
     )
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
-
 @app.route("/read", methods=["GET"])
 def read():
     try:
@@ -43,9 +39,10 @@ def read():
         if implementation == 'DH':
             conn = connect_db(manager_db)
             cursor = conn.cursor()
-
+            benchmark_dict["read"]["DH"]["total_requests"] += 1
 
             print(f"Executing query: {query}")
+            start_time = time.time()
             cursor.execute(query)
 
             result = cursor.fetchall()
@@ -53,19 +50,24 @@ def read():
             print(f"Result: {result}")
             cursor.close()
             conn.close()
-
-            return jsonify({"status": "success", "data": result})
+            end_time = time.time()
+            benchmark_dict["total_time"][manager_db["host"]] += end_time - start_time
+            return jsonify({"status": "success", "data": result, "host": manager_db["host"], "implementation": implementation, "query": query})
         elif implementation == 'RANDOM':
             worker_db = random.choice(worker_dbs)
-            print(worker_db)
 
             conn = connect_db(worker_db)
-
-            print(conn)
+            benchmark_dict["read"]["RANDOM"]["total_requests"] += 1
+            
+            if worker_db["host"] == worker_dbs[0]["host"]:
+                benchmark_dict["read"]["RANDOM"]["total_requests_w1"] += 1
+            elif worker_db["host"] == worker_dbs[1]["host"]:
+                benchmark_dict["read"]["RANDOM"]["total_requests_w2"] += 1
 
             cursor = conn.cursor()
 
             print(f"Executing query: {query}")
+            start_time = time.time()
             cursor.execute(query)
 
             result = cursor.fetchall()
@@ -73,18 +75,20 @@ def read():
             print(f"Result: {result}")
             cursor.close()
             conn.close()
-
-            return jsonify({"status": "success", "data": result})
+            end_time = time.time()
+            benchmark_dict["total_time"][worker_db["host"]] += end_time - start_time
+            return jsonify({"status": "success", "data": result, "host": worker_db["host"], "implementation": implementation, "query": query})
         elif implementation == 'CUSTOM':
             dbs = [manager_db] + worker_dbs
             worker_times = {}
+            benchmark_dict["read"]["CUSTOM"]["total_requests"] += 1
 
             for db in dbs:
                 start = time.time()
                 try:
                     conn = connect_db(db)
                     cursor = conn.cursor()
-                    cursor.execute("SELECT 1")  # Simple lightweight query for testing connection
+                    cursor.execute("SELECT 1")
                     cursor.fetchall()
                     cursor.close()
                     conn.close()
@@ -98,10 +102,16 @@ def read():
                 return jsonify({"error": "No available workers"}), 500
 
             selected_worker_db = next(db for db in dbs if db["host"] == fastest_worker)
+            if selected_worker_db["host"] == worker_dbs[0]["host"]:
+                benchmark_dict["read"]["CUSTOM"]["total_requests_w1"] += 1
+            elif selected_worker_db["host"] == worker_dbs[1]["host"]:
+                benchmark_dict["read"]["CUSTOM"]["total_requests_w2"] += 1
+            
             conn = connect_db(selected_worker_db)
             cursor = conn.cursor()
 
             print(f"Executing query on fastest worker {fastest_worker}: {query}")
+            start_time = time.time()
             cursor.execute(query)
 
             result = cursor.fetchall()
@@ -109,8 +119,9 @@ def read():
             print(f"Result: {result}")
             cursor.close()
             conn.close()
-
-            return jsonify({"status": "success", "data": result})
+            end_time = time.time()
+            benchmark_dict["total_time"][selected_worker_db["host"]] += end_time - start_time
+            return jsonify({"status": "success", "data": result, "host": db["host"], "implementation": implementation, "query": query})
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -118,31 +129,36 @@ def read():
 @app.route("/write", methods=["POST"])
 def write():
     try:
-        # Step 1: Parse the request data
         request_data = request.get_json()
-        query = request_data.get("query")  # SQL write query from client
+        query = request_data.get("query")
 
         if not query:
             return jsonify({"status": "error", "message": "No query provided"}), 400
 
-        # Step 2: Send write request to the Manager (Primary DB)
-        conn = connect_db(manager_db)  # Connect to Manager (Primary)
+
+        conn = connect_db(manager_db)
         cursor = conn.cursor()
-        cursor.execute(query)  # Execute the write query
+        cursor.execute(query)
         conn.commit()
 
-        # Step 3: Replicate the data to all Workers
         for worker_db in worker_dbs:
             replicate_to_worker(worker_db, query)
 
         cursor.close()
         conn.close()
 
-        return jsonify({"status": "success", "message": "Write query executed and replicated to workers"}), 200
+        return jsonify({"status": "success", "message": f"Write query executed and replicated to workers"}), 200
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/benchmarks", methods=["GET"])
+def benchmarks():
+    # benchmark_dict["avg_time"][str(worker_dbs[0]["host"])] = benchmark_dict["total_time"][worker_dbs[0]["host"]] / (benchmark_dict["read"]["RANDOM"]["total_requests_w1"] + benchmark_dict["read"]["CUSTOM"]["total_requests_w1"] + benchmark_dict["read"]["DH"]["total_requests_w1"])
+    # benchmark_dict["avg_time"][str(worker_dbs[1]["host"])] = benchmark_dict["total_time"][worker_dbs[1]["host"]] / (benchmark_dict["read"]["RANDOM"]["total_requests_w2"] + benchmark_dict["read"]["CUSTOM"]["total_requests_w2"] + benchmark_dict["read"]["DH"]["total_requests_w2"])
+    # benchmark_dict["avg_time"][str(manager_db["host"])] = benchmark_dict["total_time"][manager_db["host"]] / benchmark_dict["read"]["DH"]["total"]
+    return jsonify(benchmark_dict)
+    
 def replicate_to_worker(worker_db, query):
     try:
         conn = connect_db(worker_db)
@@ -153,9 +169,9 @@ def replicate_to_worker(worker_db, query):
         conn.close()
     except Exception as e:
         print(f"Error replicating to worker {worker_dbs['host']}: {str(e)}")   
-      
-if __name__ == '__main__':
 
+        
+if __name__ == '__main__':
     manager_db = {
     "host": "manager_ip",
     "user": "root",
@@ -176,6 +192,35 @@ if __name__ == '__main__':
             "database": "sakila"
         },
     ]
+    benchmark_dict= {
+        "avg_time": {
+            str(worker_dbs[0]["host"]): 0,
+            str(worker_dbs[1]["host"]): 0,
+            str(manager_db["host"]): 0
+        },
+        "total_time": {
+            str(worker_dbs[0]["host"]): 0,
+            str(worker_dbs[1]["host"]): 0,
+            str(manager_db["host"]): 0
+        },
+        "read": {
+            "DH": {
+                "total_requests": 0,
+                "total_requests_w1": 0,
+                "total_requests_w2": 0,
+            },
+            "RANDOM": {
+                "total_requests": 0,
+                "total_requests_w1": 0,
+                "total_requests_w2": 0,
+            },
+            "CUSTOM": {
+                "total_requests": 0,
+                "total_requests_w1": 0,
+                "total_requests_w2": 0,
+            },
+        },
+    }
 
     app.run(host='0.0.0.0', port=8080)
 EOF
