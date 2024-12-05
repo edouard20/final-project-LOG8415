@@ -3,6 +3,7 @@ cp ~/.aws/credentials credentials
 
 export VENV=.tp3
 
+PYTHON_PATH=$(command -v python || command -v python3)
 if [ ! -d "$VENV" ]; then
     "$PYTHON_PATH" -m venv .tp3
 fi

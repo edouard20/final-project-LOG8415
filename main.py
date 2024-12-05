@@ -259,14 +259,14 @@ def delete_resources(ec2, resource_ids):
     try:
         security_groups = ec2.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['SecurityGroups']
         for sg in security_groups:
-            if sg['GroupName'] != 'default':  # Skip default security group
+            if sg['GroupName'] != 'default':
                 logging.info(f"Deleting security group {sg['GroupId']}")
                 ec2.delete_security_group(GroupId=sg['GroupId'])
                 logging.info(f"Security group {sg['GroupId']} deleted.")
     except ClientError as e:
         logging.error(f"Error deleting security groups: {e}")
 
-    time.sleep(90)
+    time.sleep(120)
     if vpc_id:
         logging.info(f"Deleting VPC: {vpc_id}")
         ec2.delete_vpc(VpcId=vpc_id)
@@ -354,22 +354,17 @@ ip_addresses = [
         for instance in reservation["Instances"]
     ]
 
-for i in range(1000):
+for i in range(50):
     logging.info(send_write_request(ip_addresses[0], "DH"))
-
-for i in range(1000):
+    time.sleep(0.5)
     logging.info(send_read_request(ip_addresses[0], "DH"))
 
-for i in range(1000):
+for i in range(50):
     logging.info(send_write_request(ip_addresses[0], "CUSTOM"))
-
-for i in range(1000):
     logging.info(send_read_request(ip_addresses[0], "CUSTOM"))
 
-for i in range(1000):
+for i in range(50):
     logging.info(send_write_request(ip_addresses[0], "RANDOM"))
-
-for i in range(1000):
     logging.info(send_read_request(ip_addresses[0], "RANDOM"))
 
 logging.info(get_benchmarks(ip_addresses[0]))

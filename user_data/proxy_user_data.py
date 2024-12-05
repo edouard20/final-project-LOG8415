@@ -106,6 +106,8 @@ def read():
                 benchmark_dict["read"]["CUSTOM"]["total_requests_w1"] += 1
             elif selected_worker_db["host"] == worker_dbs[1]["host"]:
                 benchmark_dict["read"]["CUSTOM"]["total_requests_w2"] += 1
+            elif selected_worker_db["host"] == manager_db["host"]:
+                benchmark_dict["read"]["CUSTOM"]["total_requests_manager"] += 1
             
             conn = connect_db(selected_worker_db)
             cursor = conn.cursor()
@@ -154,10 +156,7 @@ def write():
 
 @app.route("/benchmarks", methods=["GET"])
 def benchmarks():
-    # benchmark_dict["avg_time"][str(worker_dbs[0]["host"])] = benchmark_dict["total_time"][worker_dbs[0]["host"]] / (benchmark_dict["read"]["RANDOM"]["total_requests_w1"] + benchmark_dict["read"]["CUSTOM"]["total_requests_w1"] + benchmark_dict["read"]["DH"]["total_requests_w1"])
-    # benchmark_dict["avg_time"][str(worker_dbs[1]["host"])] = benchmark_dict["total_time"][worker_dbs[1]["host"]] / (benchmark_dict["read"]["RANDOM"]["total_requests_w2"] + benchmark_dict["read"]["CUSTOM"]["total_requests_w2"] + benchmark_dict["read"]["DH"]["total_requests_w2"])
-    # benchmark_dict["avg_time"][str(manager_db["host"])] = benchmark_dict["total_time"][manager_db["host"]] / benchmark_dict["read"]["DH"]["total"]
-    return jsonify(benchmark_dict)
+    return jsonify({"benchmarks": benchmark_dict})
     
 def replicate_to_worker(worker_db, query):
     try:
@@ -193,11 +192,6 @@ if __name__ == '__main__':
         },
     ]
     benchmark_dict= {
-        "avg_time": {
-            str(worker_dbs[0]["host"]): 0,
-            str(worker_dbs[1]["host"]): 0,
-            str(manager_db["host"]): 0
-        },
         "total_time": {
             str(worker_dbs[0]["host"]): 0,
             str(worker_dbs[1]["host"]): 0,
@@ -206,8 +200,6 @@ if __name__ == '__main__':
         "read": {
             "DH": {
                 "total_requests": 0,
-                "total_requests_w1": 0,
-                "total_requests_w2": 0,
             },
             "RANDOM": {
                 "total_requests": 0,
@@ -216,6 +208,7 @@ if __name__ == '__main__':
             },
             "CUSTOM": {
                 "total_requests": 0,
+                "total_requests_manager": 0,
                 "total_requests_w1": 0,
                 "total_requests_w2": 0,
             },
