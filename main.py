@@ -354,16 +354,15 @@ ip_addresses = [
         for instance in reservation["Instances"]
     ]
 
-for i in range(50):
+for i in range(1000):
     logging.info(send_write_request(ip_addresses[0], "DH"))
-    time.sleep(0.5)
     logging.info(send_read_request(ip_addresses[0], "DH"))
 
-for i in range(50):
+for i in range(1000):
     logging.info(send_write_request(ip_addresses[0], "CUSTOM"))
     logging.info(send_read_request(ip_addresses[0], "CUSTOM"))
 
-for i in range(50):
+for i in range(1000):
     logging.info(send_write_request(ip_addresses[0], "RANDOM"))
     logging.info(send_read_request(ip_addresses[0], "RANDOM"))
 
